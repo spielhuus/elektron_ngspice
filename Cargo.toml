@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "ngspice bindings for elektron"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/spielhuus/elektron_ngspice"
 
 [lib]
 name = "elektron_ngspice"
