@@ -1,0 +1,13 @@
+[package]
+name = "elektron_ngspice"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "elektron_ngspice"
+
+[dependencies]
+libloading = "0.7.3"
+
+[build-dependencies]
+bindgen = "0.60.1"
