@@ -17,7 +17,7 @@ jobs:
     steps:
     - name: Install native dependencies
       run: |
-          sudo apt-get install -y -qq ngspice
+          sudo apt-get install -y -qq libngspice0 libngspice0-dev
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
