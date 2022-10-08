@@ -19,9 +19,9 @@ pub enum NgSpiceError {
 }
 
 // #[derive(Debug)]
-pub struct NgSpice<C> {
+pub struct NgSpice<'a, C> {
     ngspice: ngspice,
-    pub callbacks: C,
+    pub callbacks: &'a mut C,
     exited: bool,
 }
 
@@ -41,7 +41,7 @@ pub struct VectorInfo<'a> {
 pub struct SimulationResult<'a, C: Callbacks> {
     pub name: String,
     pub data: HashMap<String, VectorInfo<'a>>,
-    sim: std::sync::Arc<NgSpice<C>>,
+    sim: std::sync::Arc<NgSpice<'a, C>>,
 }
 
 impl<'a, C: Callbacks> Drop for SimulationResult<'a, C> {
@@ -104,8 +104,8 @@ impl From<libloading::Error> for NgSpiceError {
     }
 }
 
-impl<C: Callbacks> NgSpice<C> {
-    pub fn new(c: C) -> Result<std::sync::Arc<NgSpice<C>>, NgSpiceError> {
+impl<'a, C: Callbacks> NgSpice<'a, C> {
+    pub fn new(c: &'a mut C) -> Result<std::sync::Arc<NgSpice<'a, C>>, NgSpiceError> {
         unsafe {
             let spice = NgSpice {
                 ngspice: ngspice::new(library_filename("ngspice")).unwrap(),
@@ -232,7 +232,7 @@ impl<C: Callbacks> NgSpice<C> {
         }
     }
 
-    pub fn vector_info<'a>(&self, vec: &str) -> Result<VectorInfo<'a>, NgSpiceError> {
+    pub fn vector_info(&self, vec: &str) -> Result<VectorInfo<'a>, NgSpiceError> {
         let cs = CString::new(vec)?;
         let raw = cs.into_raw();
         unsafe {
@@ -263,12 +263,12 @@ impl<C: Callbacks> NgSpice<C> {
     }
 }
 
-pub trait Simulator<C: Callbacks> {
-    fn op<'a>(&self) -> Result<SimulationResult<'a, C>, NgSpiceError>;
+pub trait Simulator<'a, C: Callbacks> {
+    fn op(&self) -> Result<SimulationResult<'a, C>, NgSpiceError>;
 }
 
-impl<C: Callbacks> Simulator<C> for std::sync::Arc<NgSpice<C>> {
-    fn op<'a>(&self) -> Result<SimulationResult<'a, C>, NgSpiceError> {
+impl<'a, C: Callbacks> Simulator<'a, C> for std::sync::Arc<NgSpice<'a, C>> {
+    fn op(&self) -> Result<SimulationResult<'a, C>, NgSpiceError> {
         self.command("op")?;
         let plot = self.current_plot()?;
         let vecs = self.all_vecs(&plot)?;
@@ -308,8 +308,8 @@ mod tests {
     }
     #[test]
     fn it_works() {
-        let c = Cb { strs: Vec::new() };
-        let spice = NgSpice::new(c).unwrap();
+        let mut c = Cb { strs: Vec::new() };
+        let spice = NgSpice::new(&mut c).unwrap();
         // assert!(NgSpice::new(Cb { strs: Vec::new() }).is_err());
         spice.command("echo hello").expect("echo failed");
         assert_eq!(
