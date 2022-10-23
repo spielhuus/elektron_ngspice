@@ -2,6 +2,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use thiserror::Error;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 //pub use crate::{ngcomplex, ngspice, simulation_types};
@@ -11,12 +13,56 @@ use std::convert::TryInto;
 use std::ffi::{CStr, CString, NulError};
 use std::os::raw::{c_char, c_int, c_void};
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
+pub enum NgSpiceError {
+    #[error("ill-formed matrix can't be decomposed")]
+    Badmatrix, 
+    #[error("matrix is singular")]
+    Singular, 
+    #[error("iteration limit reached,operation aborted")]
+    Iterlim, 
+    #[error("integration order not supported")]
+    Order, 
+    #[error("integration method not supported")]
+    Method, 
+    #[error("timestep too small")]
+    TimeStep, 
+    #[error("transmission line in pz analysis")]
+    Xmissionline, 
+    #[error("pole-zero magnitude too large")]
+    Magexceeded, 
+    #[error("pole-zero input or output shorted")]
+    Short, 
+    #[error("pole-zero input is output")]
+    Inisout, 
+    #[error("ac currents cannot be ASKed")]
+    AskCurrent, 
+    #[error("ac powers cannot be ASKed")]
+    AskPower, 
+    #[error("node not defined in noise anal")]
+    Nodundef, 
+    #[error("no ac input src specified for noise")]
+    Noacinput, 
+    #[error("no source at F2 for IM disto analysis")]
+    Nof2src, 
+    #[error("no distortion analysis - NODISTO defined")]
+    NoDisto, 
+    #[error("no noise analysis - NONOISE defined")]
+    NoNoise, 
+    #[error("can not load the ngspice library.")]
+    Init, 
+    #[error("encoding error.")]
+    Encoding, 
+    #[error("Unknown error: {0}")]
+    Unknown(i32), 
+}
+
+/* #[derive(Debug)]
 pub enum NgSpiceError {
     Init,
     Command,
     Encoding,
-}
+} */
 
 // #[derive(Debug)]
 pub struct NgSpice<'a, C> {
@@ -104,6 +150,48 @@ impl From<libloading::Error> for NgSpiceError {
     }
 }
 
+impl From<i32> for NgSpiceError {
+    fn from(e: i32) -> NgSpiceError {
+        if e == 101 {
+          NgSpiceError::Badmatrix
+        } else if e == 102 {
+          NgSpiceError::Singular
+        } else if e == 103 {
+          NgSpiceError::Iterlim
+        } else if e == 104 {
+          NgSpiceError::Order
+        } else if e == 105 {
+          NgSpiceError::Method
+        } else if e == 106 {
+          NgSpiceError::TimeStep
+        } else if e == 107 {
+          NgSpiceError::Xmissionline
+        } else if e == 108 {
+          NgSpiceError::Magexceeded
+        } else if e == 109 {
+          NgSpiceError::Short
+        } else if e == 110 {
+          NgSpiceError::Inisout
+        } else if e == 111 {
+          NgSpiceError::AskCurrent
+        } else if e == 112 {
+          NgSpiceError::AskPower
+        } else if e == 113 {
+          NgSpiceError::Nodundef
+        } else if e == 114 {
+          NgSpiceError::Noacinput
+        } else if e == 115 {
+          NgSpiceError::Nof2src
+        } else if e == 116 {
+          NgSpiceError::NoDisto
+        } else if e == 117 {
+          NgSpiceError::NoNoise
+        } else {
+            NgSpiceError::Unknown(e)
+        }
+    }
+}
+
 impl<'a, C: Callbacks> NgSpice<'a, C> {
     pub fn new(c: &'a mut C) -> Result<std::sync::Arc<NgSpice<'a, C>>, NgSpiceError> {
         unsafe {
@@ -140,7 +228,7 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
                 if ret == 0 {
                     Ok(())
                 } else {
-                    Err(NgSpiceError::Command)
+                    Err(ret.into())
                 }
             }
         } else {
@@ -164,10 +252,10 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
                         drop(CString::from_raw(b));
                     }
                 }
-                if res == 1 {
-                    Err(NgSpiceError::Command)
-                } else {
+                if res == 0 {
                     Ok(())
+                } else {
+                    Err(res.into())
                 }
             }
         } else {

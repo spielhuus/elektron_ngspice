@@ -1,6 +1,6 @@
 [package]
 name = "elektron_ngspice"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "ngspice bindings for elektron"
 license = "MIT OR Apache-2.0"
@@ -11,6 +11,7 @@ name = "elektron_ngspice"
 
 [dependencies]
 libloading = "0.7.3"
+thiserror = "1.0"
 
 [build-dependencies]
-bindgen = "0.60.1"
+bindgen = "0.61.0"
