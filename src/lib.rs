@@ -55,16 +55,14 @@ pub enum NgSpiceError {
     Encoding, 
     #[error("Unknown error: {0}")]
     Unknown(i32), 
+    #[error("No Results from ngspice.")]
+    NoResults,
+    #[error("Interior nul byte was found.")]
+    NulError,
+    #[error("Integral conversion failed.")]
+    TryFromIntFailed,
 }
 
-/* #[derive(Debug)]
-pub enum NgSpiceError {
-    Init,
-    Command,
-    Encoding,
-} */
-
-// #[derive(Debug)]
 pub struct NgSpice<'a, C> {
     ngspice: ngspice,
     pub callbacks: &'a mut C,
@@ -112,6 +110,7 @@ unsafe extern "C" fn send_char<C: Callbacks>(
     }
     0
 }
+
 unsafe extern "C" fn controlled_exit<C: Callbacks>(
     status: c_int,
     unload: bool,
@@ -128,7 +127,7 @@ unsafe extern "C" fn controlled_exit<C: Callbacks>(
 
 impl From<NulError> for NgSpiceError {
     fn from(_e: NulError) -> NgSpiceError {
-        NgSpiceError::Encoding
+        NgSpiceError::NulError
     }
 }
 
@@ -140,7 +139,7 @@ impl From<std::str::Utf8Error> for NgSpiceError {
 
 impl From<std::num::TryFromIntError> for NgSpiceError {
     fn from(_e: std::num::TryFromIntError) -> NgSpiceError {
-        NgSpiceError::Encoding
+        NgSpiceError::TryFromIntFailed
     }
 }
 
@@ -219,59 +218,47 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
         if self.exited {
             panic!("NgSpice exited")
         }
-        let cs_res = CString::new(s);
-        if let Ok(cs) = cs_res {
-            let raw = cs.into_raw();
-            unsafe {
-                let ret = self.ngspice.ngSpice_Command(raw);
-                drop(CString::from_raw(raw));
-                if ret == 0 {
-                    Ok(())
-                } else {
-                    Err(ret.into())
-                }
+        let cs = CString::new(s)?;
+        let raw = cs.into_raw();
+        unsafe {
+            let ret = self.ngspice.ngSpice_Command(raw);
+            drop(CString::from_raw(raw));
+            if ret == 0 {
+                Ok(())
+            } else {
+                Err(ret.into())
             }
-        } else {
-            Err(NgSpiceError::Encoding)
         }
     }
 
     pub fn circuit(&self, circ: Vec<String>) -> Result<(), NgSpiceError> {
-        let buf_res: Result<Vec<*mut i8>, _> = circ
+        let mut buf: Vec<*mut i8> = circ
             .iter()
             .map(|s| CString::new(s.as_str()).map(|cs| cs.into_raw()))
-            .collect();
-        if let Ok(mut buf) = buf_res {
+            .collect::<Result<Vec<*mut i8>, _>>()?;
             // ngspice wants an empty string and a nullptr
-            buf.push(CString::new("").unwrap().into_raw());
-            buf.push(std::ptr::null_mut());
-            unsafe {
-                let res = self.ngspice.ngSpice_Circ(buf.as_mut_ptr());
-                for b in buf {
-                    if !b.is_null() {
-                        drop(CString::from_raw(b));
-                    }
-                }
-                if res == 0 {
-                    Ok(())
-                } else {
-                    Err(res.into())
+        buf.push(CString::new("").unwrap().into_raw());
+        buf.push(std::ptr::null_mut());
+        unsafe {
+            let res = self.ngspice.ngSpice_Circ(buf.as_mut_ptr());
+            for b in buf {
+                if !b.is_null() {
+                    drop(CString::from_raw(b));
                 }
             }
-        } else {
-            Err(NgSpiceError::Encoding)
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(res.into())
+            }
         }
     }
 
     pub fn current_plot(&self) -> Result<String, NgSpiceError> {
         unsafe {
             let ret = self.ngspice.ngSpice_CurPlot();
-            let ptr_res = CStr::from_ptr(ret).to_str();
-            if let Ok(ptr) = ptr_res {
-                Ok(String::from(ptr))
-            } else {
-                Err(NgSpiceError::Encoding)
-            }
+            let ptr = CStr::from_ptr(ret).to_str()?;
+            Ok(String::from(ptr))
         }
     }
 
@@ -281,13 +268,9 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
             let mut strs: Vec<String> = Vec::new();
             let mut i = 0;
             while !(*ptrs.offset(i)).is_null() {
-                let ptr_res = CStr::from_ptr(*ptrs.offset(i)).to_str();
-                if let Ok(ptr) = ptr_res {
-                    let s = String::from(ptr);
-                    strs.push(s);
-                } else {
-                    return Err(NgSpiceError::Encoding);
-                }
+                let ptr = CStr::from_ptr(*ptrs.offset(i)).to_str()?;
+                let s = String::from(ptr);
+                strs.push(s);
                 i += 1;
             }
             Ok(strs)
@@ -295,28 +278,20 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
     }
 
     pub fn all_vecs(&self, plot: &str) -> Result<Vec<String>, NgSpiceError> {
-        let cs_res = CString::new(plot);
-        if let Ok(cs) = cs_res {
-            let raw = cs.into_raw();
-            unsafe {
-                let ptrs = self.ngspice.ngSpice_AllVecs(raw);
-                drop(CString::from_raw(raw));
-                let mut strs: Vec<String> = Vec::new();
-                let mut i = 0;
-                while !(*ptrs.offset(i)).is_null() {
-                    let ptr_res = CStr::from_ptr(*ptrs.offset(i)).to_str();
-                    if let Ok(ptr) = ptr_res {
-                        let s = String::from(ptr);
-                        strs.push(s);
-                    } else {
-                        return Err(NgSpiceError::Encoding);
-                    }
-                    i += 1;
-                }
-                Ok(strs)
+        let cs = CString::new(plot)?;
+        let raw = cs.into_raw();
+        unsafe {
+            let ptrs = self.ngspice.ngSpice_AllVecs(raw);
+            drop(CString::from_raw(raw));
+            let mut strs: Vec<String> = Vec::new();
+            let mut i = 0;
+            while !(*ptrs.offset(i)).is_null() {
+                let ptr = CStr::from_ptr(*ptrs.offset(i)).to_str()?;
+                let s = String::from(ptr);
+                strs.push(s);
+                i += 1;
             }
-        } else {
-            Err(NgSpiceError::Encoding)
+            Ok(strs)
         }
     }
 
@@ -345,7 +320,7 @@ impl<'a, C: Callbacks> NgSpice<'a, C> {
                     data: ComplexSlice::Complex(comp_slice),
                 })
             } else {
-                Err(NgSpiceError::Encoding)
+                Err(NgSpiceError::NoResults)
             }
         }
     }
